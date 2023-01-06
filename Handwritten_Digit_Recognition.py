@@ -45,30 +45,14 @@ class NeuralNetwork:
         final_outputs = self.activation_function(final_inputs)
         return final_outputs
 
-    def rquery(self, targets_list):
-        final_outputs = np.array(targets_list, ndmin=2).T
-        final_inputs = scipy.special.logit(final_outputs)
-        hidden_outputs = np.dot(self.who.T, final_inputs)
-        # hidden_outputs -= np.min(hidden_outputs)
-        # hidden_outputs /= np.max(hidden_outputs)
-        # hidden_outputs *= 0.98
-        # hidden_outputs += 0.01
-
-        b = np.dot(self.who.T, self.who)
-        a = scipy.linalg.inv(b)
-        c = np.dot(a, b)
-        d = np.dot(c, scipy.linalg.inv(c))
-
-        hidden_outputs = np.dot(d, np.dot(a, hidden_outputs))
-        hidden_inputs = scipy.special.logit(hidden_outputs)
-        inputs = np.dot(self.wih.T, hidden_inputs)
-        # inputs -= np.min(inputs)
-        # inputs /= np.max(inputs)
-        # inputs *= 0.98
-        # inputs += 0.01
-        inputs = np.dot(np.linalg.inv(np.dot(self.wih.T, self.wih)), inputs)
-
-        return inputs
+    # def rquery(self, targets_list):
+    #     final_outputs = np.array(targets_list, ndmin=2).T
+    #     final_inputs = scipy.special.logit(final_outputs)
+    #     hidden_outputs = np.dot(scipy.linalg.pinv(self.who), final_inputs)
+    #     hidden_inputs = scipy.special.logit(hidden_outputs)
+    #     inputs = np.dot(scipy.linalg.pinv(self.wih), hidden_inputs)
+    #
+    #     return inputs
 
 
 def main():
@@ -77,7 +61,7 @@ def main():
         data = csv.reader(f)
         data = list(data)
     onodes = 10
-    for _ in range(1):
+    for _ in range(5):
         for i in data[:100]:
             inputs = (np.asfarray(i[1:]) / 255 * 0.99) + 0.01
             targets = np.zeros(onodes) + 0.01
@@ -87,24 +71,27 @@ def main():
     with open('mnist_test.csv', 'r') as f:
         data = csv.reader(f)
         data = list(data)
-    # t = 0
-    # for i in data:
-    #     out = n.query((np.asfarray(i[1:])) / 255 * 0.9 + 0.01)
-    #     print(out)
-    #     out_num = np.argmax(out)
-    #     if out_num == int(i[0]):
-    #         t += 1
-    #     plt.imshow(np.asfarray(i[1:]).reshape(28, 28), cmap='Greys')
-    #     plt.show()
-    #     break
-    # print(t)
-    for i in range(1):
-        num_list = [0.01] * 10
-        num_list[i] = 0.99
-        image_data = n.rquery(num_list)
-        print(n.query(image_data.T))
-        plt.imshow(image_data.reshape(28, 28), cmap='Greys')
-        plt.show()
+    t = 0
+    for i in data:
+        out = n.query((np.asfarray(i[1:])) / 255 * 0.9 + 0.01)
+        # print(out)
+        out_num = np.argmax(out)
+        if out_num == int(i[0]):
+            t += 1
+        # plt.imshow(np.asfarray(i[1:]).reshape(28, 28), cmap='Greys')
+        # plt.show()
+        # break
+    print(t)
+
+    # for i in range(1):
+    #     with open('mnist_test.csv') as f:
+    #         data = csv.reader(f)
+    #         data = list(data)
+    #         num_list = n.query(np.asfarray(data[10][1:]))
+    #         image_data = n.rquery(num_list.T)
+    #         print(n.query(image_data.T))
+    #         plt.imshow(image_data.reshape(28, 28), cmap='Greys')
+    #         plt.show()
 
 
 if __name__ == '__main__':
