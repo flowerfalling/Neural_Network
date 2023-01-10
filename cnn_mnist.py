@@ -7,6 +7,7 @@ import csv
 import numpy as np
 from abc import ABCMeta, abstractmethod
 import scipy
+import matplotlib.pyplot as plt
 
 
 class MNIST:
@@ -15,7 +16,7 @@ class MNIST:
             with open('mnist_train.csv') as train_file:
                 self.data = csv.reader(train_file)
                 self.data = list(self.data)
-                self.amount = 5000
+                self.amount = 60000
         else:
             with open('mnist_test.csv') as test_file:
                 self.data = csv.reader(test_file)
@@ -29,7 +30,7 @@ class MNIST:
 
     def __next__(self):
         self.counter += 1
-        if self.counter > self.amount:
+        if self.counter >= self.amount:
             raise StopIteration
         r = self.data[self.counter]
         return int(r[0]), np.asfarray(r[1:]).reshape(28, 28) / 256
@@ -62,8 +63,8 @@ class Linear(Layer):
         return np.dot(self.w.T, e)
 
     def step(self, e):
-        self.w -= np.dot(e, self.h.T)
-        self.b -= e
+        self.w += np.dot(e, self.h.T) * self.lr
+        self.b += e * self.lr
 
     def __call__(self, x):
         return self.forward(x)
@@ -105,17 +106,18 @@ class Sigmod(Layer):
 class Net(Layer):
     def __init__(self, lr):
         self.lr = lr
+        self.loss = []
         self.fc1 = Linear(784, 200, self.lr)
         self.fc2 = Linear(200, 100, self.lr)
         self.fc3 = Linear(100, 10, self.lr)
-        self.relu1 = Relu()
-        self.relu2 = Relu()
-        self.sigmod = Sigmod()
+        self.sigmod1 = Sigmod()
+        self.sigmod2 = Sigmod()
+        self.sigmod3 = Sigmod()
 
     def forward(self, x):
-        x = self.relu1(self.fc1(x))
-        x = self.relu2(self.fc2(x))
-        x = self.sigmod(self.fc3(x))
+        x = self.sigmod1(self.fc1(x.T))
+        x = self.sigmod2(self.fc2(x))
+        x = self.sigmod3(self.fc3(x))
         return x
 
     def backward(self, e):
@@ -123,15 +125,16 @@ class Net(Layer):
 
     def train(self, x, t):
         o = self(x)
-        e = (t - o) * self.lr
-        e = self.sigmod.backward(e)
+        e = t - o
+        e = self.sigmod3.backward(e)
         self.fc3.step(e)
         e = self.fc3.backward(e)
-        e = self.relu2.backward(e)
+        e = self.sigmod2.backward(e)
         self.fc2.step(e)
         e = self.fc2.backward(e)
-        e = self.relu1.backward(e)
+        e = self.sigmod1.backward(e)
         self.fc1.step(e)
+        self.loss.append(e.sum() ** 2)
         pass
 
     def __call__(self, x):
@@ -139,15 +142,18 @@ class Net(Layer):
 
 
 def main():
-    trainset = MNIST()
-    net = Net(0.001)
-    for label, data in trainset:
-        net.train(data.reshape(784, 1), label)
+    net = Net(0.01)
+    ts = np.eye(10).reshape(10, 10, 1)
+    for label, data in MNIST(True):
+        net.train(data.reshape(1, 784), ts[label])
+    # plt.plot(net.loss)
+    # plt.show()
     c = 0
-    for label, data in MNIST():
-        if np.argmax(net(data.reshape(784, 1))) == label:
+    for label, data in MNIST(False):
+        if np.argmax(net(data.reshape(1, 784))) == label:
             c += 1
     print(c)
+    pass
 
 
 if __name__ == '__main__':
