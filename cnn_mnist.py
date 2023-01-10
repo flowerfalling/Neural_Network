@@ -70,6 +70,21 @@ class Linear(Layer):
         return self.forward(x)
 
 
+class Conv(Layer):
+    def __init__(self, input_size, output_size, lr):
+        self.lr = lr
+        self.h = None
+        self.e = None
+        self.w = np.random.rand(output_size, input_size) - 0.5
+        self.b = np.random.rand(output_size, 1) - 0.5
+
+    def forward(self, x):
+        pass
+
+    def backward(self, e):
+        pass
+
+
 class Relu(Layer):
     def __init__(self):
         self.h = None
@@ -142,6 +157,7 @@ class Net(Layer):
 
 
 def main():
+    np.random.seed(1)
     net = Net(0.01)
     ts = np.eye(10).reshape(10, 10, 1)
     for label, data in MNIST(True):
