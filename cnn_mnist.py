@@ -70,13 +70,14 @@ class Linear(Layer):
         return self.forward(x)
 
 
-class Conv(Layer):
-    def __init__(self, input_size, output_size, lr):
+class Conv2d(Layer):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, lr):
         self.lr = lr
         self.h = None
         self.e = None
-        self.w = np.random.rand(output_size, input_size) - 0.5
-        self.b = np.random.rand(output_size, 1) - 0.5
+        self.stride = stride
+        self.padding = padding
+        self.w = np.random.rand(out_channels, in_channels, kernel_size, kernel_size) - 0.5
 
     def forward(self, x):
         pass
