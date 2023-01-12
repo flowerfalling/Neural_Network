@@ -8,6 +8,7 @@ import numpy as np
 from abc import ABCMeta, abstractmethod
 import scipy
 import matplotlib.pyplot as plt
+from scipy import signal
 
 
 class MNIST:
@@ -47,7 +48,7 @@ class Layer(metaclass=ABCMeta):
 
 
 class Linear(Layer):
-    def __init__(self, input_size, output_size, lr):
+    def __init__(self, lr, input_size, output_size):
         self.lr = lr
         self.h = None
         self.e = None
@@ -62,22 +63,40 @@ class Linear(Layer):
         self.e = e
         return np.dot(self.w.T, e)
 
-    def step(self, e):
-        self.w += np.dot(e, self.h.T) * self.lr
-        self.b += e * self.lr
+    def step(self):
+        self.w += np.dot(self.e, self.h.T) * self.lr
+        self.b += self.e * self.lr
 
     def __call__(self, x):
         return self.forward(x)
 
 
 class Conv2d(Layer):
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, lr):
+    def __init__(self, lr, in_channels, out_channels, kernel_size, stride=1, padding=0):
         self.lr = lr
         self.h = None
         self.e = None
         self.stride = stride
         self.padding = padding
         self.w = np.random.rand(out_channels, in_channels, kernel_size, kernel_size) - 0.5
+
+    def forward(self, x):
+        self.h = x
+        return signal.convolve2d(x, self.w, 'valid')
+
+    def backward(self, e):
+        self.e = e
+        return signal.convolve2d(self.h, e[:, ::-1], 'valid')
+
+    def step(self):
+        self.w += signal.convolve2d(self.h, self.e, 'valid')
+
+
+class MaxPool2d(Layer):
+    def __init__(self, kernel_size, stride=1, padding=0):
+        self.stride = stride
+        self.padding = padding
+        self.kernel_size = kernel_size
 
     def forward(self, x):
         pass
@@ -123,9 +142,9 @@ class Net(Layer):
     def __init__(self, lr):
         self.lr = lr
         self.loss = []
-        self.fc1 = Linear(784, 200, self.lr)
-        self.fc2 = Linear(200, 100, self.lr)
-        self.fc3 = Linear(100, 10, self.lr)
+        self.fc1 = Linear(self.lr, 784, 200)
+        self.fc2 = Linear(self.lr, 200, 100)
+        self.fc3 = Linear(self.lr, 100, 10)
         self.sigmod1 = Sigmod()
         self.sigmod2 = Sigmod()
         self.sigmod3 = Sigmod()
@@ -140,21 +159,34 @@ class Net(Layer):
         pass
 
     def train(self, x, t):
-        o = self(x)
+        o = self(x.reshape(1, 784))
         e = t - o
         e = self.sigmod3.backward(e)
-        self.fc3.step(e)
         e = self.fc3.backward(e)
         e = self.sigmod2.backward(e)
-        self.fc2.step(e)
         e = self.fc2.backward(e)
         e = self.sigmod1.backward(e)
-        self.fc1.step(e)
+        e = self.fc1.backward(e)
+        self.fc1.step()
+        self.fc2.step()
+        self.fc3.step()
         self.loss.append(e.sum() ** 2)
-        pass
 
     def __call__(self, x):
         return self.forward(x)
+
+
+class CNet(Layer):
+    def __init__(self, lr):
+        self.lr = lr
+        self.loss = []
+        self.conv1 = Conv2d(1, 10, 3)
+
+    def forward(self, x):
+        pass
+
+    def backward(self, e):
+        pass
 
 
 def main():
@@ -162,12 +194,10 @@ def main():
     net = Net(0.01)
     ts = np.eye(10).reshape(10, 10, 1)
     for label, data in MNIST(True):
-        net.train(data.reshape(1, 784), ts[label])
-    # plt.plot(net.loss)
-    # plt.show()
+        net.train(data, ts[label])
     c = 0
     for label, data in MNIST(False):
-        if np.argmax(net(data.reshape(1, 784))) == label:
+        if np.argmax(net(data)) == label:
             c += 1
     print(c)
     pass

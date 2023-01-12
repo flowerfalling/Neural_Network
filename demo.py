@@ -5,12 +5,16 @@
 # @Software: PyCharm
 import numpy as np
 from scipy import signal
+import torch
 
 
 def main():
     data = np.eye(7)
     conv = np.eye(3)
-    print(signal.convolve(data, conv, 'valid'))
+    r = signal.convolve2d(data, conv, 'valid')
+    print(signal.convolve2d(r, conv[:, ::-1]))
+    print(signal.convolve2d(data, r, 'valid'))
+    a = torch.nn.MaxPool2d()
     pass
 
 
