@@ -15,7 +15,7 @@ class MNIST:
         print('data loading...', end='')
         with open('mnist_train.csv' if train else 'mnist_test.csv') as file:
             self.data = csv.reader(file)
-            self.amount = (60000 if train else 10000) // self.batch_size
+            self.amount = (10000 if train else 1000) // self.batch_size
             self.data = np.array(list(self.data)[:self.amount * self.batch_size]).reshape(
                 (self.amount, self.batch_size, 785))
         print('done')

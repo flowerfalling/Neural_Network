@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # @Time    : 2023/1/6 16:36
 # @Author  : 之落花--falling_flowers
-# @File    : cnn_mnist.py
+# @File    : nndemo_mnist.py
 # @Software: PyCharm
 import time
 
 import numpy as np
 from matplotlib import pyplot as plt
 
+import demo
 import nn
 import datasets
 
@@ -56,8 +57,8 @@ class CNet(nn.Layer):
     def __init__(self, lr):
         self.lr = lr
         self.loss = []
-        self.conv1 = nn.Conv2d(self.lr, 1, 10, (3, 3))
-        self.conv2 = nn.Conv2d(self.lr, 10, 16, (4, 4))
+        self.conv1 = demo.Conv2d(self.lr, 1, 10, (3, 3))
+        self.conv2 = demo.Conv2d(self.lr, 10, 16, (4, 4))
         self.pool1 = nn.MaxPool2d((2, 2), (2, 2))
         self.pool2 = nn.MaxPool2d((2, 2), (2, 2))
         self.flatten = nn.Flatten()
@@ -104,22 +105,26 @@ class CNet(nn.Layer):
 
 
 def main():
-    t = time.time()
-    np.random.seed(1)
-    net = Net(0.01)
+    # t = time.time()
+    # np.random.seed(1)
+    # # net = Net(0.01)
+    net = CNet(0.01)
     ts = np.eye(10)
     for label, data in datasets.MNIST(True, 10):
-        net.train(data, ts[label])
-    print(time.time() - t)
+        for _ in range(20):
+            net.train(data, ts[label])
+        break
+    # print(time.time() - t)
     plt.plot(net.loss)
     plt.show()
-    t = time.time()
-    c = 0
-    for label, data in datasets.MNIST(False):
-        if np.argmax(net(data)) == label:
-            c += 1
-    print(time.time() - t)
-    print(c)
+    pass
+    # t = time.time()
+    # c = 0
+    # for label, data in datasets.MNIST(False):
+    #     if np.argmax(net(data)) == label:
+    #         c += 1
+    # print(time.time() - t)
+    # print(c)
 
 
 if __name__ == '__main__':

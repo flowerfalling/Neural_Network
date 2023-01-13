@@ -159,16 +159,13 @@ class Relu(Layer):
 
     def forward(self, x):
         self.h = x
-        for b in np.arange(x.shape[0]):
-            x[b, x[b] < 0] = 0
+        x[x < 0] = 0
         return x
 
     def backward(self, e):
-        for b in np.arange(e.shape[0]):
-            self.h[b, self.h[b] > 0] = 1
-            self.h[b, self.h[b] < 0] = 0
-            e[b] *= self.h[b]
-        return e
+        self.h[self.h > 0] = 1
+        self.h[self.h < 0] = 0
+        return e * self.h
 
     def __call__(self, x):
         return self.forward(x)
@@ -179,15 +176,11 @@ class Sigmod(Layer):
         self.o = None
 
     def forward(self, x):
-        self.o = np.empty(x.shape)
-        for b in np.arange(x.shape[0]):
-            self.o[b] = scipy.special.expit(x[b])
+        self.o = scipy.special.expit(x)
         return self.o
 
     def backward(self, e):
-        for b in np.arange(e.shape[0]):
-            e[b] *= self.o[b] * (1 - self.o[b])
-        return e
+        return e * self.o * (1 - self.o)
 
     def __call__(self, x):
         return self.forward(x)
