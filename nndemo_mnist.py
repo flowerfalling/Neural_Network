@@ -11,49 +11,6 @@ import datasets
 import nn
 
 
-class Net(nn.LearnLayer):
-    def __init__(self, lr):
-        super().__init__(lr)
-        self.lr = lr
-        self.loss = []
-        self.fc1 = nn.Linear(self.lr, 784, 200)
-        self.fc2 = nn.Linear(self.lr, 200, 100)
-        self.fc3 = nn.Linear(self.lr, 100, 10)
-        self.flatten = nn.Flatten()
-        self.sigmod = nn.Sigmod()
-        self.relu = nn.Relu()
-        self.tanh = nn.Tanh()
-
-    def forward(self, x: np.ndarray) -> np.ndarray:
-        x = self.flatten((x, nn.Start()))
-        x = self.relu(self.fc1(x))
-        x = self.relu(self.fc2(x))
-        x = self.sigmod(self.fc3(x))
-        self.from_layer.push(x[1])
-        return x[0]
-
-    def backward(self, e):
-        from_layer = self.from_layer.pop()
-        if from_layer is None:
-            return
-        from_layer.backward(e)
-
-    def step(self):
-        for layer in self.__dict__.values():
-            if isinstance(layer, nn.LearnLayer):
-                layer.step()
-
-    def train(self, x, t):
-        o = self(x)
-        e = t - o
-        self.loss.append((e ** 2).sum())
-        self.backward(e)
-        self.step()
-
-    def __call__(self, x):
-        return self.forward(x)
-
-
 class CNet(nn.LearnLayer):
     def __init__(self, lr):
         super().__init__(lr)
@@ -100,9 +57,52 @@ class CNet(nn.LearnLayer):
         return self.forward(x)
 
 
+class Net(nn.LearnLayer):
+    def __init__(self, lr):
+        super().__init__(lr)
+        self.lr = lr
+        self.loss = []
+        self.fc1 = nn.Linear(self.lr, 784, 200)
+        self.fc2 = nn.Linear(self.lr, 200, 100)
+        self.fc3 = nn.Linear(self.lr, 100, 10, 'x')
+        self.flatten = nn.Flatten()
+        self.sigmod = nn.Sigmod()
+        self.relu = nn.Relu()
+        self.tanh = nn.Tanh()
+
+    def forward(self, x: np.ndarray) -> np.ndarray:
+        x = self.flatten((x, nn.Start()))
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        x = self.sigmod(self.fc3(x))
+        self.from_layer.push(x[1])
+        return x[0]
+
+    def backward(self, e):
+        from_layer = self.from_layer.pop()
+        if from_layer is None:
+            return
+        from_layer.backward(e)
+
+    def step(self):
+        for layer in self.__dict__.values():
+            if isinstance(layer, nn.LearnLayer):
+                layer.step()
+
+    def train(self, x, t):
+        o = self(x)
+        e = t - o
+        self.loss.append((e ** 2).sum())
+        self.backward(e)
+        self.step()
+
+    def __call__(self, x):
+        return self.forward(x)
+
+
 def main():
     np.random.seed(1)
-    trainset = datasets.MNIST(True, shuffle=True)
+    trainset = datasets.MNIST(True, 10, True)
     t = time.time()
     net = Net(0.01)
     ts = np.eye(10)
