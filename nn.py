@@ -13,40 +13,50 @@ class Layer(metaclass=ABCMeta):
     def __init__(self):
         self.from_layer = Cache()
 
-    def navigate(self, x):
-        if isinstance(x[1], Layer):
-            self.from_layer.push(x[1])
-            return x[0]
-        return x
+    def navigate(self, x: tuple[np.ndarray, "Layer"]) -> np.ndarray:
+        self.from_layer.push(x[1])
+        return x[0]
 
     @abstractmethod
-    def forward(self, x):
+    def forward(self, x: tuple[np.ndarray, "Layer"]) -> tuple[np.ndarray, "Layer"]:
         pass
 
     @abstractmethod
-    def backward(self, e):
+    def backward(self, e: np.ndarray) -> None:
         pass
 
 
 class LearnLayer(Layer, metaclass=ABCMeta):
-    def __init__(self, lr):
+    def __init__(self, lr: float) -> None:
         super().__init__()
         self.lr = lr
 
     @abstractmethod
-    def step(self):
+    def step(self) -> None:
         pass
 
 
 class Linear(LearnLayer):
-    def __init__(self, lr, input_size, output_size):
+    def __init__(
+            self, lr: float,
+            input_size: int,
+            output_size: int,
+            init_mode: str = "k",
+            k: float = 0.0
+    ) -> None:
         super().__init__(lr)
-        self.w = np.random.rand(output_size, input_size) - 0.5
-        self.b = np.random.rand(output_size) - 0.5
+        if init_mode == 'k':
+            variance = 2 / input_size ** 0.5
+        elif init_mode == 'x':
+            variance = 2 / (input_size + output_size)
+        else:
+            variance = 1
+        self.w = np.random.randn(output_size, input_size) * variance
+        self.b = np.random.randn(output_size)
         self.h = None
         self.e = None
 
-    def forward(self, x):
+    def forward(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
         x = super().navigate(x)
         self.h = x
         r = np.empty((x.shape[0], *self.b.shape))
@@ -54,80 +64,93 @@ class Linear(LearnLayer):
             r[b] = np.dot(self.w, x[b]) + self.b
         return r, self
 
-    def backward(self, e):
+    def backward(self, e: np.ndarray) -> None:
+        self.e = e
         from_layer = self.from_layer.pop()
         if from_layer is None:
             return
-        self.e = e
         r = np.empty(self.h.shape)
         for b in np.arange(e.shape[0]):
             r[b] = np.dot(self.w.T, e[b])
         from_layer.backward(r)
 
-    def step(self):
+    def step(self) -> None:
         for b in np.arange(self.e.shape[0]):
             self.w += np.dot(self.e[b, None].T, self.h[b, None]) * self.lr
             self.b += self.e[b] * self.lr
 
-    def __call__(self, x):
+    def __call__(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
         return self.forward(x)
 
 
 class Conv2d(LearnLayer):
-    def __init__(self, lr, in_channels, out_channels, kernel_size, stride=(1, 1), padding=0):
+    def __init__(
+            self,
+            lr: float,
+            in_channels: int,
+            out_channels: int,
+            kernel_size: int | tuple[int, int],
+            stride: int | tuple[int, int] = (1, 1),
+            padding: int = 0,
+    ) -> None:
         super().__init__(lr)
-        self.h = None
-        self.e = None
-        self.stride = stride
-        self.padding = padding
-        self.w = np.random.rand(out_channels, in_channels, kernel_size[0], kernel_size[1]) - 0.5
+        self.in_channels: int = in_channels
+        self.out_channels: int = out_channels
+        self.kernel_size: tuple[int, int] = kernel_size if isinstance(kernel_size, tuple) else (kernel_size,) * 2
+        self.stride: tuple[int, int] = stride if isinstance(stride, tuple) else (stride, stride)
+        self.padding: int = padding
+        self.w: np.ndarray = np.random.rand(out_channels, in_channels, *self.kernel_size)
+        self.history_input = None
+        self.loss = None
 
-    def forward(self, x):
+    def forward(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
         x = super().navigate(x)
-        self.h = x
-        r = [[0 for _ in range(self.w.shape[0])] for _ in range(x.shape[0])]
-        for b in range(x.shape[0]):
-            for t in range(self.w.shape[0]):
-                r[b][t] = signal.convolve(x[b], self.w[t], 'valid')
-        return np.array(r)[:, :, 0], self
+        self.history_input = x
+        x = np.pad(x, ((0, 0), (0, 0), *((self.padding,) * 2,) * 2))
+        s = x.shape
+        r = np.empty((s[0], self.out_channels,
+                      (s[-2] - self.kernel_size[0] + 2 * self.padding) // self.stride[0] + 1,
+                      (s[-1] - self.kernel_size[1] + 2 * self.padding) // self.stride[1] + 1))
+        for b in range(s[0]):
+            r[b] = signal.fftconvolve(x[b, None], self.w, 'valid')[:, 0]
+        return r, self
 
-    def backward(self, e):
+    def backward(self, e: np.ndarray) -> None:
+        self.loss = e
         from_layer = self.from_layer.pop()
         if from_layer is None:
             return
-        self.e = e
-        r = np.empty(self.h.shape)
-        for b in np.arange(e.shape[0]):
-            for t in np.arange(self.w.shape[1]):
-                pad = (self.w.shape[-2] - self.stride[0], self.w.shape[-1] - self.stride[1])
-                r[b, t] = signal.convolve(np.pad(e[b], ((0, 0), (pad[0], pad[0]), (pad[1], pad[1]))),
-                                          self.w[:, t, ::-1], 'valid')
-        from_layer.backward(r)
+        r = np.zeros(self.history_input.shape)
+        for b in range(e.shape[0]):
+            for c in range(e.shape[1]):
+                r[b] += signal.fftconvolve(e[b, c, None], self.w[c, :, ::-1])
+        from_layer.backward(
+            r if not self.padding else r[:, :, self.padding: -self.padding, self.padding: -self.padding])
 
-    def step(self):
-        for b in np.arange(self.e.shape[0]):
-            for o in np.arange(self.w.shape[0]):
-                for i in np.arange(self.w.shape[1]):
-                    self.w[o, i] += signal.convolve(self.h[b, i], self.e[b, o], 'valid')
+    def step(self) -> None:
+        for b in range(self.loss.shape[0]):
+            self.w += signal.fftconvolve(self.loss[b, :, None], self.history_input[b, None], 'valid') * self.lr
 
-    def __call__(self, x):
+    def __call__(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
         return self.forward(x)
 
 
 class MaxPool2d(Layer):
-    def __init__(self, kernel_size, stride=(1, 1), padding=0):
+    def __init__(self, kernel_size: int or tuple[int, int],
+                 stride: int or tuple[int, int] = (1, 1),
+                 padding=0):
         super().__init__()
-        self.in_shape = Cache()
-        self.p = Cache()
-        self.stride = stride
-        self.padding = padding
-        self.kernel_size = kernel_size
+        self.in_shape: Cache = Cache()
+        self.p: Cache = Cache()
+        self.stride: tuple = stride if isinstance(stride, tuple) else (stride, stride)
+        self.padding: int = padding
+        self.kernel_size: tuple = kernel_size if isinstance(kernel_size, tuple) else (kernel_size, kernel_size)
 
     @staticmethod
     def max(x):
         return np.max(x), np.argmax(x)
 
-    def forward(self, x):
+    def forward(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
         x = super().navigate(x)
         self.in_shape.push((x.shape[-2], x.shape[-1]))
         r = np.zeros((x.shape[0], x.shape[1],
@@ -144,7 +167,7 @@ class MaxPool2d(Layer):
         self.p.push(p)
         return r, self
 
-    def backward(self, e):
+    def backward(self, e: np.ndarray) -> None:
         from_layer = self.from_layer.pop()
         if from_layer is None:
             return
@@ -164,31 +187,31 @@ class MaxPool2d(Layer):
                                            (0, in_shape[-1] - r[b, t].shape[1])))
         from_layer.backward(r)
 
-    def __call__(self, x):
+    def __call__(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
         return self.forward(x)
 
 
 class Flatten(Layer):
-    def __init__(self, start_dim=1, end_dim=-1):
+    def __init__(self, start_dim: int = 1, end_dim: int = -1):
         super().__init__()
         self.s = Cache()
         self.start_dim = start_dim
         self.end_dim = end_dim
 
-    def forward(self, x):
+    def forward(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
         x = super().navigate(x)
         s = x.shape
         self.s.push(s)
         x = np.reshape(x, (*s[:self.start_dim], -1, *s[self.end_dim:][1:]))
         return x, self
 
-    def backward(self, e):
+    def backward(self, e: np.ndarray) -> None:
         from_layer = self.from_layer.pop()
         if from_layer is None:
             return
         from_layer.backward(e.reshape(self.s.pop()))
 
-    def __call__(self, x):
+    def __call__(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
         return self.forward(x)
 
 
@@ -197,19 +220,21 @@ class Relu(Layer):
         super().__init__()
         self.h = Cache()
 
-    def forward(self, x):
+    def forward(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
         x = super().navigate(x)
         self.h.push(x)
         x[x < 0] = 0
         return x, self
 
-    def backward(self, e):
+    def backward(self, e: np.ndarray) -> None:
+        from_layer = self.from_layer.pop()
+        if from_layer is None:
+            return
         h = self.h.pop()
-        h[h > 0] = 1
-        h[h < 0] = 0
-        return e * h
+        e[h < 0] = 0
+        from_layer.backward(e)
 
-    def __call__(self, x):
+    def __call__(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
         return self.forward(x)
 
 
@@ -218,17 +243,49 @@ class Sigmod(Layer):
         super().__init__()
         self.o = Cache()
 
-    def forward(self, x):
+    def forward(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
         x = super().navigate(x)
         self.o.push(scipy.special.expit(x))
         return self.o.peek(), self
 
-    def backward(self, e):
+    def backward(self, e: np.ndarray) -> None:
+        from_layer = self.from_layer.pop()
+        if from_layer is None:
+            return
         o = self.o.pop()
-        return e * o * (1 - o)
+        from_layer.backward(e * o * (1 - o))
 
-    def __call__(self, x):
+    def __call__(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
         return self.forward(x)
+
+
+class Tanh(Layer):
+    def __init__(self):
+        super().__init__()
+        self.o = Cache()
+
+    def forward(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
+        x = super().navigate(x)
+        self.o.push(np.tanh(x))
+        return self.o.peek(), self
+
+    def backward(self, e: np.ndarray) -> None:
+        from_layer = self.from_layer.pop()
+        if from_layer is None:
+            return
+        o = self.o.pop()
+        from_layer.backward(e * (1 - o ** 2))
+
+    def __call__(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
+        return self.forward(x)
+
+
+class Start(Layer):
+    def forward(self, x: object) -> None:
+        pass
+
+    def backward(self, e: object) -> None:
+        pass
 
 
 class Cache:
