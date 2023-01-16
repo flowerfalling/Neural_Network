@@ -109,7 +109,10 @@ def main():
     for label, data in trainset:
         net.train(data, ts[label])
     print(time.time() - t)
-    plt.plot(net.loss)
+    plt.scatter(np.arange(1, len(net.loss) + 1), net.loss, 3, marker='.')
+    plt.title('net.loss')
+    plt.xlabel('batches')
+    plt.ylabel('loss')
     plt.show()
     t = time.time()
     c = 0

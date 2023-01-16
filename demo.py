@@ -4,16 +4,13 @@
 # @File    : demo.py
 # @Software: PyCharm
 import numpy as np
-
-import nn
+import time
 
 
 def main():
-    d = np.random.rand(784, 1)
-    fc = np.random.randn(200, 784) / 784 * 50
-    r = np.dot(fc, d)
-    print(r.mean())
-    print(r.var())
+    a = np.random.randn(10, 784)
+    b = np.random.randn(200, 784)
+    r = np.einsum('bi,oi->bo', a, b, optimize=True)
     ...
 
 

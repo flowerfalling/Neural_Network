@@ -41,8 +41,7 @@ class Linear(LearnLayer):
             self, lr: float,
             input_size: int,
             output_size: int,
-            init_mode: str = "k",
-            k: float = 0.0
+            init_mode: str = 'k',
     ) -> None:
         super().__init__(lr)
         if init_mode == 'k':
@@ -59,25 +58,19 @@ class Linear(LearnLayer):
     def forward(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
         x = super().navigate(x)
         self.h = x
-        r = np.empty((x.shape[0], *self.b.shape))
-        for b in np.arange(x.shape[0]):
-            r[b] = np.dot(self.w, x[b]) + self.b
+        r = np.einsum('bi,oi->bo', x, self.w, optimize=True) + self.b
         return r, self
 
     def backward(self, e: np.ndarray) -> None:
         self.e = e
         from_layer = self.from_layer.pop()
-        if from_layer is None:
-            return
-        r = np.empty(self.h.shape)
-        for b in np.arange(e.shape[0]):
-            r[b] = np.dot(self.w.T, e[b])
+        if from_layer is None: return
+        r = np.einsum('bo,oi->bi', e, self.w, optimize=True)
         from_layer.backward(r)
 
     def step(self) -> None:
-        for b in np.arange(self.e.shape[0]):
-            self.w += np.dot(self.e[b, None].T, self.h[b, None]) * self.lr
-            self.b += self.e[b] * self.lr
+        self.w += np.einsum('bo,bi->oi', self.e, self.h, optimize=True) * self.lr
+        self.b += np.einsum('bo->o', self.e, optimize=True) * self.lr
 
     def __call__(self, x: tuple[np.ndarray, Layer]) -> tuple[np.ndarray, Layer]:
         return self.forward(x)
@@ -228,8 +221,7 @@ class Relu(Layer):
 
     def backward(self, e: np.ndarray) -> None:
         from_layer = self.from_layer.pop()
-        if from_layer is None:
-            return
+        if from_layer is None: return
         h = self.h.pop()
         e[h < 0] = 0
         from_layer.backward(e)
@@ -250,8 +242,7 @@ class Sigmod(Layer):
 
     def backward(self, e: np.ndarray) -> None:
         from_layer = self.from_layer.pop()
-        if from_layer is None:
-            return
+        if from_layer is None: return
         o = self.o.pop()
         from_layer.backward(e * o * (1 - o))
 
@@ -271,8 +262,7 @@ class Tanh(Layer):
 
     def backward(self, e: np.ndarray) -> None:
         from_layer = self.from_layer.pop()
-        if from_layer is None:
-            return
+        if from_layer is None: return
         o = self.o.pop()
         from_layer.backward(e * (1 - o ** 2))
 
