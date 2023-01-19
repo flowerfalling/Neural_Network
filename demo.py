@@ -5,12 +5,14 @@
 # @Software: PyCharm
 import numpy as np
 import time
+import matplotlib.pyplot as plt
+
+import datasets
 
 
 def main():
-    a = np.random.randn(10, 784)
-    b = np.random.randn(200, 784)
-    r = np.einsum('bi,oi->bo', a, b, optimize=True)
+    s = datasets.MNIST()
+    print(np.var(s.data / 255) - 0.13)
     ...
 
 

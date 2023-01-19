@@ -61,6 +61,7 @@ class Net(nn.LearnLayer):
     def __init__(self, lr):
         super().__init__(lr)
         self.lr = lr
+        self.state = 'train'
         self.loss = []
         self.fc1 = nn.Linear(self.lr, 784, 200)
         self.fc2 = nn.Linear(self.lr, 200, 100)
@@ -69,10 +70,12 @@ class Net(nn.LearnLayer):
         self.sigmod = nn.Sigmod()
         self.relu = nn.Relu()
         self.tanh = nn.Tanh()
+        self.dropout = nn.Dropout(1.0)
 
     def forward(self, x: np.ndarray) -> np.ndarray:
         x = self.flatten((x, nn.Start()))
-        x = self.relu(self.fc1(x))
+        x = self.relu(self.dropout(self.fc1(x)))
+        # x = self.dropout(x, self.state)
         x = self.relu(self.fc2(x))
         x = self.sigmod(self.fc3(x))
         self.from_layer.push(x[1])
@@ -101,26 +104,30 @@ class Net(nn.LearnLayer):
 
 
 def main():
-    np.random.seed(1)
-    trainset = datasets.MNIST(True, 10, True)
-    t = time.time()
-    net = Net(0.01)
-    ts = np.eye(10)
-    for label, data in trainset:
-        net.train(data, ts[label])
-    print(time.time() - t)
-    plt.scatter(np.arange(1, len(net.loss) + 1), net.loss, 3, marker='.')
+    np.random.seed(2)
     plt.title('net.loss')
     plt.xlabel('batches')
     plt.ylabel('loss')
-    plt.show()
-    t = time.time()
-    c = 0
-    for label, data in datasets.MNIST(False):
-        if np.argmax(net(data)) == label:
-            c += 1
-    print(time.time() - t)
-    print(c)
+    net = Net(0.01)
+    trainset = datasets.MNIST(True, 10, True)
+    testset = datasets.MNIST(False)
+    ts = np.eye(10)
+    epoch = 5
+    for e in range(epoch):
+        net.state = 'train'
+        t = time.time()
+        for label, data in trainset:
+            net.train(data, ts[label])
+        print('epoch: {}\tuse time{:.3f}s'.format(e + 1, time.time() - t), end='')
+        plt.scatter(np.arange(1, len(net.loss) + 1), net.loss, 3, marker='.')
+        plt.show()
+        net.loss.clear()
+        net.state = 'test'
+        c = 0
+        for label, data in testset:
+            if np.argmax(net(data)) == label:
+                c += 1
+        print(f'\tCorrect rate: {c / 100}%')
 
 
 if __name__ == '__main__':

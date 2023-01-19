@@ -45,9 +45,10 @@ class Linear(LearnLayer):
     ) -> None:
         super().__init__(lr)
         if init_mode == 'k':
-            variance = 2 / input_size ** 0.5
+            variance = np.sqrt(2 / input_size)
         elif init_mode == 'x':
-            variance = 2 / (input_size + output_size)
+            # variance = 2 / (input_size + output_size)
+            variance = np.sqrt(2 / (input_size + output_size))
         else:
             variance = 1
         self.w = np.random.randn(output_size, input_size) * variance
@@ -63,8 +64,8 @@ class Linear(LearnLayer):
 
     def backward(self, e: np.ndarray) -> None:
         self.e = e
+        if not self.from_layer: return
         from_layer = self.from_layer.pop()
-        if from_layer is None: return
         r = np.einsum('bo,oi->bi', e, self.w, optimize=True)
         from_layer.backward(r)
 
@@ -208,6 +209,28 @@ class Flatten(Layer):
         return self.forward(x)
 
 
+class Dropout(Layer):
+    def __init__(self, p: float = 0.5):
+        super().__init__()
+        self.p = p
+
+    def forward(self, x: tuple[np.ndarray, "Layer"], state: str = 'train') -> tuple[np.ndarray, "Layer"]:
+        if state == 'train':
+            x = super().navigate(x)
+            d = np.random.rand(*x.shape) < self.p
+            return x * d / self.p, self
+        else:
+            return x
+
+    def backward(self, e: np.ndarray) -> None:
+        if not self.from_layer: return
+        from_layer = self.from_layer.pop()
+        from_layer.backward(e)
+
+    def __call__(self, x: tuple[np.ndarray, "Layer"], state: str = 'train') -> tuple[np.ndarray, "Layer"]:
+        return self.forward(x, state)
+
+
 class Relu(Layer):
     def __init__(self):
         super().__init__()
@@ -220,8 +243,8 @@ class Relu(Layer):
         return x, self
 
     def backward(self, e: np.ndarray) -> None:
+        if not self.from_layer: return
         from_layer = self.from_layer.pop()
-        if from_layer is None: return
         h = self.h.pop()
         e[h < 0] = 0
         from_layer.backward(e)
@@ -241,8 +264,8 @@ class Sigmod(Layer):
         return self.o.peek(), self
 
     def backward(self, e: np.ndarray) -> None:
+        if not self.from_layer: return
         from_layer = self.from_layer.pop()
-        if from_layer is None: return
         o = self.o.pop()
         from_layer.backward(e * o * (1 - o))
 
@@ -261,8 +284,8 @@ class Tanh(Layer):
         return self.o.peek(), self
 
     def backward(self, e: np.ndarray) -> None:
+        if not self.from_layer: return
         from_layer = self.from_layer.pop()
-        if from_layer is None: return
         o = self.o.pop()
         from_layer.backward(e * (1 - o ** 2))
 
