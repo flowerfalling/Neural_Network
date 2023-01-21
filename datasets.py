@@ -22,7 +22,7 @@ class MNIST:
         self.reload(self.shuffle)
         return self
 
-    def __next__(self):
+    def __next__(self) -> tuple[np.ndarray, np.ndarray]:
         self.counter += 1
         if self.counter == self.amount:
             raise StopIteration

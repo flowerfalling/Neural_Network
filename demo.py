@@ -3,16 +3,17 @@
 # @Author  : 之落花--falling_flowers
 # @File    : demo.py
 # @Software: PyCharm
+# import torch
 import numpy as np
-import time
-import matplotlib.pyplot as plt
 
 import datasets
+import nn
+import nndemo_mnist
 
 
 def main():
-    s = datasets.MNIST()
-    print(np.var(s.data / 255) - 0.13)
+    net = nndemo_mnist.Net()
+    print(net.parameters())
     ...
 
 
