@@ -73,9 +73,7 @@ class Net(nn.LearnLayer):
     def forward(self, x: np.ndarray) -> nn.Tensor:
         x = nn.Tensor(x)
         x = self.flatten(x)
-        # x = self.dropout(x, self.state)
         x = self.relu(self.fc1(x))
-        # x = self.dropout(x, self.state)
         x = self.relu(self.fc2(x))
         x = self.sigmod(self.fc3(x))
         return x
@@ -99,6 +97,15 @@ class Net(nn.LearnLayer):
             if isinstance(i, nn.LearnLayer):
                 parameter.extend(i.parameters())
         return parameter
+
+    def load(self):
+        self.fc1.w = np.load(r'.\pth\net\net-fc1-w.npy')
+        self.fc1.b = np.load(r'.\pth\net\net-fc1-b.npy')
+        self.fc2.w = np.load(r'.\pth\net\net-fc2-w.npy')
+        self.fc2.b = np.load(r'.\pth\net\net-fc2-b.npy')
+        self.fc3.w = np.load(r'.\pth\net\net-fc3-w.npy')
+        self.fc3.b = np.load(r'.\pth\net\net-fc3-b.npy')
+        self.loss = np.load(r'.\pth\net\net-loss.npy')
 
 
 def main():
