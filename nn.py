@@ -9,17 +9,13 @@ import numpy as np
 import scipy
 
 
-# from typing import Union
-# from scipy import signal
-
-
 class Layer(metaclass=ABCMeta):
     @abstractmethod
     def forward(self, x: "Tensor") -> "Tensor":
         pass
 
     @abstractmethod
-    def backward(self, e: np.ndarray, parameter: dict) -> None:
+    def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
         pass
 
 
@@ -34,7 +30,7 @@ class Linear(LearnLayer):
             self,
             input_size: int,
             output_size: int,
-            init_mode: str = 'k',
+            init_mode: str = 'k'
     ) -> None:
         if init_mode == 'k':
             variance = np.sqrt(2 / input_size)
@@ -53,7 +49,7 @@ class Linear(LearnLayer):
         x.tensor = np.einsum('bi,oi->bo', x.tensor, self.w, optimize=True) + self.b
         return x
 
-    def backward(self, e: np.ndarray, parameter: dict):
+    def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
         self.e = e
         self.dw += np.einsum('bo,bi->oi', self.e, parameter['h'], optimize=True)
         self.db += np.einsum('bo->o', self.e, optimize=True)
@@ -175,10 +171,54 @@ class Linear(LearnLayer):
 #         return self.forward(x)
 
 
+class BatchNorm1d(LearnLayer):
+    def __init__(self, momentum: float = 0):
+        self.gamma = 1
+        self.beta = 0
+        self.dgamma = 0
+        self.dbeta = 0
+        self.eps = 1e-8
+        self.running_mean = 0
+        self.running_var = 0
+        self.momentum = momentum
+
+    def forward(self, x: "Tensor", mode: str = 'train') -> "Tensor":
+        if mode == 'train':
+            mean = np.mean(x.tensor, axis=0, keepdims=True)
+            var = np.var(x.tensor, axis=0, keepdims=True)
+            sqrtvar = np.sqrt(var + self.eps)
+            xnorm = (x.tensor - mean) / sqrtvar
+            x.tensor = xnorm * self.gamma + self.beta
+            x.cache.append((self, {'var': var, 'mean': mean, 'xnorm': xnorm, 'x': x.tensor.copy()}))
+            self.running_mean = self.momentum * self.running_mean + (1 - self.momentum) * mean
+            self.running_var = self.momentum * self.running_var + (1 - self.momentum) * var
+        else:
+            xnorm = (x.tensor - self.running_mean) / np.sqrt(self.running_var + self.eps)
+            x.tensor = xnorm * self.gamma + self.beta
+        return x
+
+    def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
+        self.dbeta += np.sum(e, axis=0)
+        self.dgamma += np.sum(e * parameter['xnorm'], axis=0)
+        size = e.shape[1]
+        dxnorm = e * self.gamma
+        dvar = np.sum(dxnorm * (parameter['x'] - parameter['mean']) * (-0.5) *
+                      np.power(parameter['var'] + self.eps, -1.5), axis=0)
+        dmean = np.sum(dxnorm * (-1) * np.power(parameter['var'] + self.eps, -0.5), axis=0)
+        dmean += dvar * np.sum(-2 * (parameter['x'] - parameter['mean']), axis=0) / size
+        e = dxnorm * np.power(parameter['var'] + self.eps, -0.5) + dvar * 2 * (
+                    parameter['x'] - parameter['mean']) / size + dmean / size
+        return e
+
+    def __call__(self, x: "Tensor", mode: str = 'train') -> "Tensor":
+        return self.forward(x, mode)
+
+    def parameters(self) -> list:
+        return [[self.gamma, self.dgamma], [self.beta, self.dbeta]]
+
+
 class Flatten(Layer):
     def __init__(self, start_dim: int = 1, end_dim: int = -1):
-        super().__init__()
-        self.s = []
         self.start_dim = start_dim
         self.end_dim = end_dim
 
@@ -188,7 +228,7 @@ class Flatten(Layer):
         x.tensor = np.reshape(x.tensor, (*s[:self.start_dim], -1, *s[self.end_dim:][1:]))
         return x
 
-    def backward(self, e: np.ndarray, parameter: dict):
+    def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
         return e.reshape(parameter['s'])
 
     def __call__(self, x: "Tensor") -> "Tensor":
@@ -197,7 +237,6 @@ class Flatten(Layer):
 
 class Dropout(Layer):
     def __init__(self, p: float = 0.5):
-        super().__init__()
         self.p = p
 
     def forward(self, x: "Tensor", state: str = 'train') -> "Tensor":
@@ -206,7 +245,7 @@ class Dropout(Layer):
             x.tensor *= d / self.p
         return x
 
-    def backward(self, e: np.ndarray, parameter: dict):
+    def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
         return e
 
     def __call__(self, x: "Tensor", state: str = 'train') -> "Tensor":
@@ -215,7 +254,6 @@ class Dropout(Layer):
 
 class Relu(Layer):
     def __init__(self):
-        super().__init__()
         self.h = []
 
     def forward(self, x: "Tensor") -> "Tensor":
@@ -223,7 +261,7 @@ class Relu(Layer):
         x.tensor[x.tensor < 0] = 0
         return x
 
-    def backward(self, e: np.ndarray, parameter: dict):
+    def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
         e[parameter['h'] < 0] = 0
         return e
 
@@ -232,15 +270,12 @@ class Relu(Layer):
 
 
 class Sigmod(Layer):
-    def __init__(self):
-        super().__init__()
-
     def forward(self, x: "Tensor") -> "Tensor":
         x.tensor = scipy.special.expit(x.tensor)
         x.cache.append((self, {'o': x.tensor.copy()}))
         return x
 
-    def backward(self, e: np.ndarray, parameter: dict) -> None:
+    def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
         return e * parameter['o'] * (1 - parameter['o'])
 
     def __call__(self, x: "Tensor") -> "Tensor":
@@ -248,16 +283,12 @@ class Sigmod(Layer):
 
 
 class Tanh(Layer):
-    def __init__(self):
-        super().__init__()
-        self.o = []
-
     def forward(self, x: "Tensor") -> "Tensor":
         x.tensor = np.tanh(x.tensor)
         x.cache.append({'o': x.tensor.copy()})
         return x
 
-    def backward(self, e: np.ndarray, parameter: dict) -> None:
+    def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
         return e * (1 - parameter['o'] ** 2)
 
     def __call__(self, x: "Tensor") -> "Tensor":
@@ -301,12 +332,57 @@ class GD:
 
 
 class MGD:
-    def __init__(self, parameter: list, lr, momentum: float = 0):
+    def __init__(self, parameter: list, lr, beta: float = 0):
         self.parameter = parameter
         self.lr = lr
-        self.momentum = momentum
+        self.beta = beta
+        for i in self.parameter:
+            i.append(0)
 
     def step(self):
         for i in self.parameter:
-            i[0] += i[1] * self.lr
-            i[1] *= self.momentum
+            i[2] *= self.beta
+            i[2] += (1 - self.beta) * i[1]
+            i[0] += i[2] * self.lr
+            i[1] *= 0
+
+
+class RMSprop:
+    def __init__(self, parameter: list, lr, beta: float = 0):
+        self.parameter = parameter
+        self.lr = lr
+        self.beta = beta
+        self.eps = 1e-8
+        for i in self.parameter:
+            i.append(0)
+
+    def step(self):
+        for i in self.parameter:
+            i[2] *= self.beta
+            i[2] += (1 - self.beta) * i[1] ** 2
+            i[0] += i[1] / np.sqrt(i[2] + self.eps) * self.lr
+            i[1] *= 0
+
+
+class Adam:
+    def __init__(self, parameter: list, lr, beta1: float = 0, beta2: float = 0):
+        self.parameter = parameter
+        self.lr = lr
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.eps = 1e-8
+        self.count = 1
+        for i in self.parameter:
+            i += [0, 0]
+
+    def step(self):
+        for i in self.parameter:
+            i[2] *= self.beta1
+            i[2] += (1 - self.beta1) * i[1]
+            if self.count < 100:
+                i[2] /= (1 - self.beta1 ** self.count)
+                self.count += 1
+            i[3] *= self.beta2
+            i[3] += (1 - self.beta2) * i[1] ** 2
+            i[0] += i[2] / np.sqrt(i[3] + self.eps) * self.lr
+            i[1] *= 0

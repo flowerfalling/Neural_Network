@@ -67,11 +67,15 @@ class Net(nn.LearnLayer):
         self.flatten = nn.Flatten()
         self.sigmod = nn.Sigmod()
         self.relu = nn.Relu()
+        self.bn = nn.BatchNorm1d(0.9)
+        self.dropout = nn.Dropout(0.8)
 
     def forward(self, x: np.ndarray) -> nn.Tensor:
         x = nn.Tensor(x)
         x = self.flatten(x)
+        # x = self.dropout(x, self.state)
         x = self.relu(self.fc1(x))
+        # x = self.dropout(x, self.state)
         x = self.relu(self.fc2(x))
         x = self.sigmod(self.fc3(x))
         return x
@@ -102,28 +106,32 @@ def main():
     plt.title('net.loss')
     plt.xlabel('batches')
     plt.ylabel('loss')
+    batch_size = 10
     net = Net()
-    trainset = datasets.MNIST(True, 10, True)
+    trainset = datasets.MNIST(True, batch_size, True)
     testset = datasets.MNIST(False)
-    optimizer = nn.MGD(net.parameters(), 0.001, 0.2)
+    optimizer = nn.Adam(net.parameters(), 0.001, 0.9, 0.9)
     ts = np.eye(10)
-    epoch = 5
+    epoch = 10
     for e in range(epoch):
         net.state = 'train'
         t = time.time()
         for label, data in trainset:
             net.train(data, ts[label])
             optimizer.step()
-        print('epoch: {}\tuse time{:.3f}s'.format(e + 1, time.time() - t), end='')
-        plt.scatter(np.arange(1, len(net.loss) + 1), net.loss, 3, marker='.')
+        # optimizer.lr /= 1.5
+
+        print('epoch: {}    use time: {:.3f}s'.format(e + 1, time.time() - t), end='')
+        plt.scatter(np.arange(1, len(net.loss) + 1), np.array(net.loss) / batch_size, 3, marker='.')
         plt.show()
         net.loss.clear()
         net.state = 'test'
+
         c = 0
         for label, data in testset:
             if np.argmax(net(data).tensor) == label:
                 c += 1
-        print(f'\tCorrect rate: {c / 100}%')
+        print(f'    Correct rate: {c / 100}%')
 
 
 if __name__ == '__main__':
