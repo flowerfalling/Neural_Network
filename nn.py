@@ -59,7 +59,7 @@ class Linear(LearnLayer):
     def __call__(self, x: "Tensor") -> "Tensor":
         return self.forward(x)
 
-    def parameters(self):
+    def parameters(self) -> list[list, list]:
         return [[self.w, self.dw], [self.b, self.db]]
 
 
@@ -172,7 +172,7 @@ class Linear(LearnLayer):
 
 
 class BatchNorm1d(LearnLayer):
-    def __init__(self, momentum: float = 0):
+    def __init__(self, momentum: float = 0) -> None:
         self.gamma = 1
         self.beta = 0
         self.dgamma = 0
@@ -213,12 +213,12 @@ class BatchNorm1d(LearnLayer):
     def __call__(self, x: "Tensor", mode: str = 'train') -> "Tensor":
         return self.forward(x, mode)
 
-    def parameters(self) -> list:
+    def parameters(self) -> list[list, list]:
         return [[self.gamma, self.dgamma], [self.beta, self.dbeta]]
 
 
 class Flatten(Layer):
-    def __init__(self, start_dim: int = 1, end_dim: int = -1):
+    def __init__(self, start_dim: int = 1, end_dim: int = -1) -> None:
         self.start_dim = start_dim
         self.end_dim = end_dim
 
@@ -236,7 +236,7 @@ class Flatten(Layer):
 
 
 class Dropout(Layer):
-    def __init__(self, p: float = 0.5):
+    def __init__(self, p: float = 0.5) -> None:
         self.p = p
 
     def forward(self, x: "Tensor", state: str = 'train') -> "Tensor":
@@ -253,9 +253,6 @@ class Dropout(Layer):
 
 
 class Relu(Layer):
-    def __init__(self):
-        self.h = []
-
     def forward(self, x: "Tensor") -> "Tensor":
         x.cache.append((self, {'h': x.tensor.copy()}))
         x.tensor[x.tensor < 0] = 0
@@ -304,85 +301,17 @@ class Start(Layer):
 
 
 class Tensor:
-    def __init__(self, tensor: np.ndarray, cache: Start = (Start(), {})):
+    def __init__(self, tensor: np.ndarray, cache: Start = (Start(), {})) -> None:
         self.tensor: np.ndarray = tensor
         self.cache: list = [cache]
 
-    def __call__(self):
+    def __call__(self) -> np.ndarray:
         return self.tensor
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.tensor.__str__()
 
-    def __add__(self, other):
+    def __add__(self, other) -> np.ndarray:
         if isinstance(other, Tensor):
             other.cache.extend(self.cache)
         return self.tensor + other.tensor
-
-
-class GD:
-    def __init__(self, parameter: list, lr):
-        self.parameter = parameter
-        self.lr = lr
-
-    def step(self):
-        for i in self.parameter:
-            i[0] += i[1] * self.lr
-            i[1] *= 0
-
-
-class MGD:
-    def __init__(self, parameter: list, lr, beta: float = 0):
-        self.parameter = parameter
-        self.lr = lr
-        self.beta = beta
-        for i in self.parameter:
-            i.append(0)
-
-    def step(self):
-        for i in self.parameter:
-            i[2] *= self.beta
-            i[2] += (1 - self.beta) * i[1]
-            i[0] += i[2] * self.lr
-            i[1] *= 0
-
-
-class RMSprop:
-    def __init__(self, parameter: list, lr, beta: float = 0):
-        self.parameter = parameter
-        self.lr = lr
-        self.beta = beta
-        self.eps = 1e-8
-        for i in self.parameter:
-            i.append(0)
-
-    def step(self):
-        for i in self.parameter:
-            i[2] *= self.beta
-            i[2] += (1 - self.beta) * i[1] ** 2
-            i[0] += i[1] / np.sqrt(i[2] + self.eps) * self.lr
-            i[1] *= 0
-
-
-class Adam:
-    def __init__(self, parameter: list, lr, beta1: float = 0, beta2: float = 0):
-        self.parameter = parameter
-        self.lr = lr
-        self.beta1 = beta1
-        self.beta2 = beta2
-        self.eps = 1e-8
-        self.count = 1
-        for i in self.parameter:
-            i += [0, 0]
-
-    def step(self):
-        for i in self.parameter:
-            i[2] *= self.beta1
-            i[2] += (1 - self.beta1) * i[1]
-            if self.count < 100:
-                i[2] /= (1 - self.beta1 ** self.count)
-                self.count += 1
-            i[3] *= self.beta2
-            i[3] += (1 - self.beta2) * i[1] ** 2
-            i[0] += i[2] / np.sqrt(i[3] + self.eps) * self.lr
-            i[1] *= 0

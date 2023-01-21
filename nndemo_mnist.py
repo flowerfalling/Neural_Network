@@ -9,6 +9,7 @@ from matplotlib import pyplot as plt
 
 import datasets
 import nn
+import optim
 
 
 # class CNet(nn.LearnLayer):
@@ -117,7 +118,7 @@ def main():
     net = Net()
     trainset = datasets.MNIST(True, batch_size, True)
     testset = datasets.MNIST(False)
-    optimizer = nn.Adam(net.parameters(), 0.001, 0.9, 0.9)
+    optimizer = optim.Adam(net.parameters(), 0.001, 0.9, 0.9)
     ts = np.eye(10)
     epoch = 10
     for e in range(epoch):
@@ -126,7 +127,6 @@ def main():
         for label, data in trainset:
             net.train(data, ts[label])
             optimizer.step()
-        # optimizer.lr /= 1.5
 
         print('epoch: {}    use time: {:.3f}s'.format(e + 1, time.time() - t), end='')
         plt.scatter(np.arange(1, len(net.loss) + 1), np.array(net.loss) / batch_size, 3, marker='.')
