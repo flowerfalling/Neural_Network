@@ -12,50 +12,15 @@ import nn
 import optim
 
 
-# class CNet(nn.LearnLayer):
-#     def __init__(self, lr):
-#         super().__init__(lr)
-#         self.loss = []
-#         self.conv1 = nn.Conv2d(lr, 1, 10, (3, 3))
-#         self.conv2 = nn.Conv2d(lr, 10, 16, (4, 4))
-#         self.pool = nn.MaxPool2d((2, 2), (2, 2))
-#         self.flatten = nn.Flatten()
-#         self.fc1 = nn.Linear(lr, 400, 120)
-#         self.fc2 = nn.Linear(lr, 120, 84)
-#         self.fc3 = nn.Linear(lr, 84, 10)
-#         self.sigmod = nn.Sigmod()
-#         self.relu = nn.Relu()
-#
-#     def forward(self, x: np.ndarray):
-#         x = self.pool(self.relu(self.conv1((x, nn.Start()))))
-#         x = self.pool(self.relu(self.conv2(x)))
-#         x = self.flatten(x)
-#         x = self.relu(self.fc1(x))
-#         x = self.relu(self.fc2(x))
-#         x = self.sigmod(self.fc3(x))
-#         self.from_layer.append(x[1])
-#         return x[0]
-#
-#     def backward(self, e):
-#         from_layer = self.from_layer.pop()
-#         if from_layer is None:
-#             return
-#         from_layer.backward(e, )
-#
-#     def step(self):
-#         for layer in self.__dict__.values():
-#             if isinstance(layer, nn.LearnLayer):
-#                 layer.step()
-#
-#     def train(self, x, t):
-#         o = self(x)
-#         e = t - o
-#         self.loss.append((e ** 2).sum())
-#         self.backward(e)
-#         self.step()
-#
-#     def __call__(self, x):
-#         return self.forward(x)
+class CNet(nn.LearnLayer):
+    def __init__(self):
+        self.state = 'train'
+        self.loss = []
+        self.conv1 = nn.Conv2d(1, 10, 3)
+        self.conv2 = nn.Conv2d(10, 16, 4)
+        self.flatten = nn.Flatten()
+        self.sigmod = nn.Sigmod()
+        self.relu = nn.Relu()
 
 
 class Net(nn.LearnLayer):

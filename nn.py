@@ -4,9 +4,12 @@
 # @File    : nn.py
 # @Software: PyCharm
 from abc import ABCMeta, abstractmethod
+from typing import Union
 
 import numpy as np
 import scipy
+from numpy.lib import stride_tricks
+from scipy import signal
 
 
 class Layer(metaclass=ABCMeta):
@@ -63,68 +66,70 @@ class Linear(LearnLayer):
         return [[self.w, self.dw], [self.b, self.db]]
 
 
-# class Conv2d(LearnLayer):
-#     def __init__(
-#             self,
-#             lr: float,
-#             in_channels: int,
-#             out_channels: int,
-#             kernel_size: Union[int, tuple[int, int]],
-#             stride: Union[int, tuple[int, int]] = (1, 1),
-#             padding: int = 0,
-#     ) -> None:
-#         super().__init__(lr)
-#         self.in_channels: int = in_channels
-#         self.out_channels: int = out_channels
-#         self.kernel_size: tuple[int, int] = kernel_size if isinstance(kernel_size, tuple) else (kernel_size,) * 2
-#         self.stride: tuple[int, int] = stride if isinstance(stride, tuple) else (stride, stride)
-#         self.padding: int = padding
-#         self.w: np.ndarray = np.random.rand(out_channels, in_channels, *self.kernel_size)
-#         self.history_input = None
-#         self.loss = None
-#
-#     def forward(self, x: "Tensor") -> "Tensor":
-#         x = self.navigate(x)
-#         self.history_input = x
-#         x = np.pad(x, ((0, 0), (0, 0), *((self.padding,) * 2,) * 2))
-#         s = x.shape
-#         r = np.empty((s[0], self.out_channels,
-#                       (s[-2] - self.kernel_size[0] + 2 * self.padding) // self.stride[0] + 1,
-#                       (s[-1] - self.kernel_size[1] + 2 * self.padding) // self.stride[1] + 1))
-#         for b in range(s[0]):
-#             r[b] = signal.fftconvolve(x[b, None], self.w, 'valid')[:, 0]
-#         return r, self
-#
-#     def backward(self, e: np.ndarray) -> None:
-#         self.loss = e
-#         from_layer = self.from_layer.pop()
-#         if from_layer is None:
-#             return
-#         r = np.zeros(self.history_input.shape)
-#         for b in range(e.shape[0]):
-#             for c in range(e.shape[1]):
-#                 r[b] += signal.fftconvolve(e[b, c, None], self.w[c, :, ::-1])
-#         from_layer.backward(
-#             r if not self.padding else r[:, :, self.padding: -self.padding, self.padding: -self.padding], )
-#
-#     def step(self) -> None:
-#         for b in range(self.loss.shape[0]):
-#             self.w += signal.fftconvolve(self.loss[b, :, None], self.history_input[b, None], 'valid') * self.lr
-#
-#     def __call__(self, x: "Tensor") -> "Tensor":
-#         return self.forward(x)
-#
-#
-# class MaxPool2d(Layer):
-#     def __init__(self, kernel_size: int or tuple[int, int],
-#                  stride: int or tuple[int, int] = (1, 1),
-#                  padding=0):
-#         super().__init__()
-#         self.in_shape: Cache = Cache()
-#         self.p: Cache = Cache()
-#         self.stride: tuple = stride if isinstance(stride, tuple) else (stride, stride)
-#         self.padding: int = padding
-#         self.kernel_size: tuple = kernel_size if isinstance(kernel_size, tuple) else (kernel_size, kernel_size)
+class Conv2d(LearnLayer):
+    def __init__(
+            self,
+            in_channels: int,
+            out_channels: int,
+            kernel_size: Union[int, tuple[int, int]],
+            stride: Union[int, tuple[int, int]] = (1, 1),
+            padding: int = 0,
+    ) -> None:
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size if isinstance(kernel_size, tuple) else (kernel_size,) * 2
+        self.stride = stride if isinstance(stride, tuple) else (stride,) * 2
+        self.padding = padding
+        self.w = np.random.rand(out_channels, in_channels, *self.kernel_size)
+        self.dw = 0
+
+    def forward(self, x: "Tensor") -> "Tensor":
+        x.tensor = np.pad(x.tensor, (*((0,) * 2,) * 2, *((self.padding,) * 2,) * 2))
+        h = x.tensor.copy()
+        x.tensor = signal.fftconvolve(x.tensor[:, None], np.flip(self.w)[None], 'valid')[:, :, 0]
+        x.cache.append((self, {'h': h, 'original_shape': x.tensor.shape}))
+        x.tensor = x.tensor[:, :, :, ::self.stride, ::self.stride]
+        return x
+
+    def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
+        if self.stride[0] > 1 or self.stride[1] > 1:
+            temp = np.zeros((parameter['original_shape']))
+            temp[:, :, ::self.stride[0], ::self.stride[1]] = e
+            e = temp
+        self.dw += signal.fftconvolve(parameter['h'][:, :, None], np.flip(e[:, None]), 'valid')[0]
+        e = np.pad(e, (*((0,) * 2,) * 2, *((self.kernel_size[0], self.kernel_size[1]),) * 2))
+        e = signal.fftconvolve(e[:, :, None], np.flip(self.w[None, :, :, ::-1]), 'valid')
+        if not self.padding:
+            e = e[:, :, self.padding: -self.padding, self.padding: -self.padding]
+        return e
+
+    def __call__(self, x: "Tensor") -> "Tensor":
+        return self.forward(x)
+
+    def parameters(self):
+        return [[self.w, self.dw]]
+
+
+class MaxPool2d(Layer):
+    def __init__(self, kernel_size: int or tuple[int, int],
+                 stride: int or tuple[int, int] = (1, 1), padding=0):
+        self.kernel_size = kernel_size if isinstance(kernel_size, tuple) else (kernel_size,) * 2
+        self.stride = stride if isinstance(stride, tuple) else (stride,) * 2
+        self.padding = padding
+
+    def forward(self, x: "Tensor") -> "Tensor":
+        x.tensor = np.pad(x.tensor, (*((0,) * 2,) * 2, *((self.padding,) * 2,) * 2))
+        s = x.tensor.shape
+        r = stride_tricks.sliding_window_view(
+            x.tensor, self.stride, axis=(-2, -1))[:, :, ::self.stride[0], ::self.stride[1]]
+        x.tensor = np.max(r, axis=(-2, -1))
+        i = np.argmax(r.reshape(*r.shape[:-2], -1), axis=-1)
+        x.cache.append((self, {'i': i, 's': s}))
+        return x
+
+    def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
+        r = np.zeros(parameter['s'])
+        pass
 #
 #     @staticmethod
 #     def max(x):
@@ -207,7 +212,7 @@ class BatchNorm1d(LearnLayer):
         dmean = np.sum(dxnorm * (-1) * np.power(parameter['var'] + self.eps, -0.5), axis=0)
         dmean += dvar * np.sum(-2 * (parameter['x'] - parameter['mean']), axis=0) / size
         e = dxnorm * np.power(parameter['var'] + self.eps, -0.5) + dvar * 2 * (
-                    parameter['x'] - parameter['mean']) / size + dmean / size
+                parameter['x'] - parameter['mean']) / size + dmean / size
         return e
 
     def __call__(self, x: "Tensor", mode: str = 'train') -> "Tensor":
@@ -290,6 +295,14 @@ class Tanh(Layer):
 
     def __call__(self, x: "Tensor") -> "Tensor":
         return self.forward(x)
+
+
+class Softmax(Layer):
+    def forward(self, x: "Tensor") -> "Tensor":
+        pass
+
+    def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
+        pass
 
 
 class Start(Layer):
