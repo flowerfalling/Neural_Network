@@ -9,14 +9,13 @@ from scipy import signal
 from numpy.lib import stride_tricks
 
 
-# import nn
+import nn
 
 
 def main():
-    x = np.random.randint(0, 10, (1, 1, 11, 11))
-    r = stride_tricks.sliding_window_view(x, (2, 2), axis=(2, 3))[:, :, ::2, ::3]
-    print(x)
-    print(r)
+    x = np.array([[1]])
+    print(np.pad(x, ((1, 2), (3, 4))))
+    pass
 
 
 if __name__ == '__main__':

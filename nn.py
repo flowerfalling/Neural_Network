@@ -9,7 +9,7 @@ from typing import Union
 import numpy as np
 import scipy
 from numpy.lib import stride_tricks
-from scipy import signal
+# from scipy import signal
 
 
 class Layer(metaclass=ABCMeta):
@@ -49,14 +49,14 @@ class Linear(LearnLayer):
 
     def forward(self, x: "Tensor") -> "Tensor":
         x.cache.append((self, {'h': x.tensor.copy()}))
-        x.tensor = np.einsum('bi,oi->bo', x.tensor, self.w, optimize=True) + self.b
+        x.tensor = np.einsum('bi,oi->bo', x.tensor, self.w, optimize='greedy') + self.b
         return x
 
     def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
         self.e = e
-        self.dw += np.einsum('bo,bi->oi', self.e, parameter['h'], optimize=True)
-        self.db += np.einsum('bo->o', self.e, optimize=True)
-        e = np.einsum('bo,oi->bi', e, self.w, optimize=True)
+        self.dw += np.einsum('bo,bi->oi', self.e, parameter['h'], optimize='greedy')
+        self.db += np.einsum('bo->o', self.e, optimize='greedy')
+        e = np.einsum('bo,oi->bi', e, self.w, optimize='greedy')
         return e
 
     def __call__(self, x: "Tensor") -> "Tensor":
@@ -73,34 +73,83 @@ class Conv2d(LearnLayer):
             out_channels: int,
             kernel_size: Union[int, tuple[int, int]],
             stride: Union[int, tuple[int, int]] = (1, 1),
-            padding: int = 0,
+            padding: Union[int, tuple[int, int]] = (0, 0),
+            mode: str = 'CUSTOMIZE'
     ) -> None:
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.kernel_size = kernel_size if isinstance(kernel_size, tuple) else (kernel_size,) * 2
-        self.stride = stride if isinstance(stride, tuple) else (stride,) * 2
-        self.padding = padding
-        self.w = np.random.rand(out_channels, in_channels, *self.kernel_size)
-        self.dw = 0
+        self.kernel_size = np.array(kernel_size) if isinstance(kernel_size, tuple) else np.array((kernel_size,) * 2)
+        self.stride = np.array(stride) if isinstance(stride, tuple) else np.array((stride,) * 2)
+        self.pad = np.array(padding) if isinstance(padding, tuple) else np.array((padding,) * 2)
+        self.padding_mode = mode
+        self.w = np.random.rand(
+            out_channels, in_channels, *self.kernel_size) / (self.kernel_size[0] * self.kernel_size[1])
+        self.dw = np.zeros_like(self.w)
+        self.first_forward = True
+        self.first_backward = True
+        self.forward_path = None
+        self.backward_path = None
+        self.w_path = None
+        self.require_grad = True
 
+    def split(self, x: np.ndarray) -> np.ndarray:
+        (B, C, H, W), (Kh, Kw), (Sh, Sw) = x.shape, self.kernel_size, self.stride
+        shape = (B, C, (H - Kh) // Sh + 1, (W - Kw) // Sw + 1, Kh, Kw)
+        s = x.strides
+        strides = (s[0], s[1], s[2] * Sh, s[3] * Sw, *s[2:])
+        return stride_tricks.as_strided(x, shape, strides, writeable=False)
+
+    def padding(self, x: np.ndarray, forward: bool = True) -> np.ndarray:
+        if forward:
+            if self.padding_mode == 'VALID':
+                return x
+            elif self.padding_mode == 'SAME' and np.sum(self.pad):
+                self.pad = self.kernel_size // 2
+                self.padding_mode = 'CUSTOMIZE'
+            return np.pad(x, ((0, 0), (0, 0), (self.pad[0],) * 2, (self.pad[1],) * 2))
+        else:
+            if self.padding_mode == 'CUSTOMIZE':
+                return np.pad(x, ((0, 0), (0, 0), (self.kernel_size[0] - 1,) * 2, (self.kernel_size[1] - 1,) * 2))
+            else:
+                p = self.pad if self.padding_mode == 'SAME' else self.kernel_size - 1
+                return np.pad(x, ((0, 0), (0, 0), (p, p), (p, p)))
+
+    # noinspection PyTypeChecker
     def forward(self, x: "Tensor") -> "Tensor":
-        x.tensor = np.pad(x.tensor, (*((0,) * 2,) * 2, *((self.padding,) * 2,) * 2))
-        h = x.tensor.copy()
-        x.tensor = signal.fftconvolve(x.tensor[:, None], np.flip(self.w)[None], 'valid')[:, :, 0]
-        x.cache.append((self, {'h': h, 'original_shape': x.tensor.shape}))
-        x.tensor = x.tensor[:, :, :, ::self.stride, ::self.stride]
+        x.tensor = self.padding(x.tensor)
+        # h = x.tensor.copy()
+        # x.tensor = signal.fftconvolve(x.tensor[:, None], np.flip(self.w)[None], 'valid')[:, :, 0]
+        # x.cache.append((self, {'h': h, 'original_shape': x.tensor.shape}))
+        # x.tensor = x.tensor[:, :, ::self.stride[0], ::self.stride[1]]
+        shape = (*(np.array(x.tensor.shape[2:]) - self.kernel_size + 1),)
+        r = self.split(x.tensor)
+        x.cache.append((self, {'r': r, 's': shape}))
+        if self.first_forward:
+            self.first_forward = False
+            self.w_path = np.einsum_path('bcij...,o...->boij', r, self.w, optimize='greedy')[0]
+        x.tensor = np.einsum('bcij...,o...->boij', r, self.w, optimize=self.w_path)
         return x
 
+    # noinspection PyTypeChecker
     def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
-        if self.stride[0] > 1 or self.stride[1] > 1:
-            temp = np.zeros((parameter['original_shape']))
+        if self.require_grad:
+            if self.first_backward:
+                self.w_path = np.einsum_path('bojk,bijkcd->oicd', e, parameter['r'], optimize='greedy')[0]
+            self.dw += np.einsum('bojk,bijkcd->oicd', e, parameter['r'], optimize=self.w_path)
+        if np.sum(self.stride):
+            temp = np.zeros((*e.shape[:2], *(parameter['s'])))
             temp[:, :, ::self.stride[0], ::self.stride[1]] = e
             e = temp
-        self.dw += signal.fftconvolve(parameter['h'][:, :, None], np.flip(e[:, None]), 'valid')[0]
-        e = np.pad(e, (*((0,) * 2,) * 2, *((self.kernel_size[0], self.kernel_size[1]),) * 2))
-        e = signal.fftconvolve(e[:, :, None], np.flip(self.w[None, :, :, ::-1]), 'valid')
-        if not self.padding:
-            e = e[:, :, self.padding: -self.padding, self.padding: -self.padding]
+        e = self.split(self.padding(e, False))
+        if self.first_backward:
+            self.first_backward = False
+            self.backward_path = np.einsum_path('bojkcd,oicd->bijk', e, self.w[:, :, ::-1, ::-1], optimize='greedy')[0]
+        e = np.einsum('bojkcd,oicd->bijk', e, self.w[:, :, ::-1, ::-1], optimize=self.backward_path)
+        # self.dw += signal.fftconvolve(parameter['h'][:, None], np.flip(e[:, :, None]), 'valid')[0]
+        # e = np.pad(e, (*((0,) * 2,) * 2, *((self.kernel_size[0] - 1, self.kernel_size[1] - 1),) * 2))
+        # e = signal.fftconvolve(e[:, :, None], np.flip(self.w[None, :, :, ::-1]), 'valid')[:, 0]
+        # if self.padding:
+        #     e = e[:, :, self.padding: -self.padding, self.padding: -self.padding]
         return e
 
     def __call__(self, x: "Tensor") -> "Tensor":
@@ -124,56 +173,46 @@ class MaxPool2d(Layer):
             x.tensor, self.stride, axis=(-2, -1))[:, :, ::self.stride[0], ::self.stride[1]]
         x.tensor = np.max(r, axis=(-2, -1))
         i = np.argmax(r.reshape(*r.shape[:-2], -1), axis=-1)
-        x.cache.append((self, {'i': i, 's': s}))
+        x.cache.append((self, {'ih': i // self.stride[1], 'iw': i % self.stride[1], 's': s}))
         return x
 
     def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
         r = np.zeros(parameter['s'])
-        pass
-#
-#     @staticmethod
-#     def max(x):
-#         return np.max(x), np.argmax(x)
-#
-#     def forward(self, x: "Tensor") -> "Tensor":
-#         x = self.navigate(x)
-#         self.in_shape.push((x.shape[-2], x.shape[-1]))
-#         r = np.zeros((x.shape[0], x.shape[1],
-#                       (x.shape[-2] - self.kernel_size[0] + self.stride[1]) // self.stride[1],
-#                       (x.shape[-1] - self.kernel_size[1] + self.stride[0]) // self.stride[0]))
-#         p = r.copy()
-#         for b in np.arange(r.shape[0]):
-#             for t in np.arange(r.shape[1]):
-#                 for i in np.arange(0, r.shape[2]):
-#                     for j in np.arange(0, r.shape[3]):
-#                         r[b, t, i, j], p[b, t, i, j] = self.max(
-#                             x[b, t, i * self.stride[1]: i * self.stride[1] + self.kernel_size[0],
-#                             j * self.stride[0]: j * self.stride[0] + self.kernel_size[1]])
-#         self.p.push(p)
-#         return r, self
-#
-#     def backward(self, e: np.ndarray) -> None:
-#         from_layer = self.from_layer.pop()
-#         if from_layer is None:
-#             return
-#         r = np.zeros((e.shape[0], e.shape[1],
-#                       e.shape[-2] * self.stride[1] + self.kernel_size[0] - self.stride[1],
-#                       e.shape[-1] * self.stride[0] + self.kernel_size[1] - self.stride[0]))
-#         ps = self.p.pop()
-#         in_shape = self.in_shape.pop()
-#         for b in np.arange(0, e.shape[0]):
-#             for t in np.arange(0, e.shape[1]):
-#                 for i in np.arange(0, e.shape[2]):
-#                     for j in np.arange(0, e.shape[3]):
-#                         p = (int(ps[b, t, i, j] // self.kernel_size[1]),
-#                              int(ps[b, t, i, j] % self.kernel_size[1]))
-#                         r[b, t, i * self.stride[1] + p[0], j * self.stride[0] + p[1]] = e[b, t, i, j]
-#                 r[b, t] = np.pad(r[b, t], ((0, in_shape[-2] - r[b, t].shape[0]),
-#                                            (0, in_shape[-1] - r[b, t].shape[1])))
-#         from_layer.backward(r, )
-#
-#     def __call__(self, x: "Tensor") -> "Tensor":
-#         return self.forward(x)
+        s = e.shape
+        for b in np.arange(0, s[0]):
+            for t in np.arange(0, s[1]):
+                for i in np.arange(0, s[2]):
+                    for j in np.arange(0, s[3]):
+                        r[b, t,
+                        i * self.stride[0] + parameter['ih'][b, t, i, j],
+                        j * self.stride[1] + parameter['iw'][b, t, i, j]] = e[b, t, i, j]
+        return r
+
+    def __call__(self, x: "Tensor") -> "Tensor":
+        return self.forward(x)
+
+
+class MaxPool(Layer):
+    def __init__(self, size):
+        self.size = size
+
+    def forward(self, x: "Tensor") -> "Tensor":
+        s = x.tensor.shape
+        size = self.size
+        out = x.tensor.reshape((s[0], s[1], s[2] // size, size, s[3] // size, size))
+        out = out.max(axis=(3, 5))
+        i = out.repeat(self.size, axis=-2).repeat(self.size, axis=-1) != x.tensor
+        x.tensor = out
+        x.cache.append((self, {'i': i}))
+        return x
+
+    def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
+        e = e.repeat(self.size, axis=-2).repeat(self.size, axis=-1)
+        e[parameter['i']] = 0
+        return e
+
+    def __call__(self, x: "Tensor") -> "Tensor":
+        return self.forward(x)
 
 
 class BatchNorm1d(LearnLayer):
