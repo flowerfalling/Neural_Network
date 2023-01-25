@@ -338,10 +338,16 @@ class Tanh(Layer):
 
 class Softmax(Layer):
     def forward(self, x: "Tensor") -> "Tensor":
-        pass
+        d = np.exp(x.tensor - np.max(x.tensor, axis=-1, keepdims=True))
+        x.tensor = d / np.sum(d, axis=-1, keepdims=True)
+        x.cache.append((self, {'o': x.tensor.copy()}))
+        return x
 
     def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
-        pass
+        return parameter['o'] * (e - np.einsum('ij,ji->i', e, parameter['o'], optimize='greedy'))
+
+    def __call__(self, x: "Tensor") -> "Tensor":
+        return self.forward(x)
 
 
 class Start(Layer):

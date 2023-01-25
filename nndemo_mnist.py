@@ -128,13 +128,24 @@ class Net(nn.LearnLayer):
         return parameter
 
     def load(self):
-        self.fc1.w = np.load(r'.\pth\net\net-fc1-w.npy')
-        self.fc1.b = np.load(r'.\pth\net\net-fc1-b.npy')
-        self.fc2.w = np.load(r'.\pth\net\net-fc2-w.npy')
-        self.fc2.b = np.load(r'.\pth\net\net-fc2-b.npy')
-        self.fc3.w = np.load(r'.\pth\net\net-fc3-w.npy')
-        self.fc3.b = np.load(r'.\pth\net\net-fc3-b.npy')
-        self.loss = list(np.load(r'.\pth\net\net-loss.npy'))
+        net_parameter = np.load(r'.\pth\net.npz')
+        self.fc1.w = net_parameter['fc1_w']
+        self.fc1.b = net_parameter['fc1_b']
+        self.fc2.w = net_parameter['fc2_w']
+        self.fc2.b = net_parameter['fc2_b']
+        self.fc3.w = net_parameter['fc3_w']
+        self.fc3.b = net_parameter['fc3_b']
+
+    def save(self):
+        np.savez(
+            r'.\pth\cnet.npz',
+            fc1_w=self.fc1.w,
+            fc2_w=self.fc2.w,
+            fc3_w=self.fc3.w,
+            fc1_b=self.fc1.b,
+            fc2_b=self.fc2.b,
+            fc3_b=self.fc3.b,
+        )
 
 
 def main():
@@ -146,9 +157,9 @@ def main():
     trainset = datasets.MNIST(True, batch_size, True)
     testset = datasets.MNIST(False)
     ts = np.eye(10)
-    epoch = 1
+    epoch = 10
 
-    net = CNet()
+    net = Net()
     optimizer = optim.Adam(net.parameters(), 0.001, 0.9, 0.9)
 
     for e in range(epoch):
@@ -168,7 +179,7 @@ def main():
         for label, data in testset:
             if np.argmax(net(data).tensor) == label:
                 c += 1
-        print(f'    Correct rate: {c / 10}%')
+        print(f'    Correct rate: {c / 100}%')
 
 
 if __name__ == '__main__':

@@ -4,7 +4,10 @@
 # @File    : optim.py
 # @Software: PyCharm
 from abc import ABCMeta, abstractmethod
+
 import numpy as np
+
+import nn
 
 
 class Optim(metaclass=ABCMeta):
@@ -80,3 +83,8 @@ class Adam(Optim):
             i[3] += (1 - self.beta2) * i[1] ** 2
             i[0] += i[2] / np.sqrt(i[3] + self.eps) * self.lr
             i[1] *= 0
+
+
+class CrossEntropyLoss:
+    def __call__(self, o, t):
+        return -np.einsum('ij,ij->', t, np.log(o), optimize='greedy') / t.shape[0]

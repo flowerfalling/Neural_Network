@@ -13,8 +13,7 @@ import nn
 
 
 def main():
-    x = np.array([[1]])
-    print(np.pad(x, ((1, 2), (3, 4))))
+    print(np.exp(1))
     pass
 
 
