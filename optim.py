@@ -86,5 +86,5 @@ class Adam(Optim):
 
 
 class CrossEntropyLoss:
-    def __call__(self, o, t):
-        return -np.einsum('ij,ij->', t, np.log(o), optimize='greedy') / t.shape[0]
+    def __call__(self, o: nn.Tensor, t: np.ndarray) -> np.ndarray:
+        return -np.einsum('ij,ij->', t, np.log(o.tensor), optimize='greedy') / t.shape[0]

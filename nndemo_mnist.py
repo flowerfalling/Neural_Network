@@ -13,79 +13,6 @@ import nn
 import optim
 
 
-class CNet(nn.LearnLayer):
-    def __init__(self):
-        self.state = 'train'
-        self.loss = []
-        self.conv1 = nn.Conv2d(1, 10, 3, 1, 1)
-        self.conv2 = nn.Conv2d(10, 16, 5)
-        self.fc1 = nn.Linear(400, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 10, 'x')
-        # self.fc = nn.Linear(400, 10)
-        # self.maxpool = nn.MaxPool2d(2, 2)
-        self.maxpool = nn.MaxPool(2)
-        self.flatten = nn.Flatten()
-        self.sigmod = nn.Sigmod()
-        self.relu = nn.Relu()
-
-    def forward(self, x: np.ndarray) -> nn.Tensor:
-        x = nn.Tensor(x)
-        x = self.maxpool(self.conv1(x))
-        x = self.maxpool(self.conv2(x))
-        x = self.flatten(x)
-        x = self.relu(self.fc1(x))
-        x = self.relu(self.fc2(x))
-        x = self.sigmod(self.fc3(x))
-        return x
-
-    def backward(self, e: np.ndarray, parameter: dict) -> np.ndarray:
-        pass
-
-    def train(self, x: np.ndarray, t: np.ndarray) -> None:
-        o = self(x)
-        e = t - o.tensor
-        self.loss.append((e ** 2).sum())
-        for i in o.cache[::-1]:
-            e = i[0].backward(e, i[1])
-
-    def __call__(self, x: np.ndarray) -> nn.Tensor:
-        return self.forward(x)
-
-    def parameters(self):
-        parameter = []
-        for i in self.__dict__.values():
-            if isinstance(i, nn.LearnLayer):
-                parameter.extend(i.parameters())
-        return parameter
-
-    def load(self):
-        net_parameter = np.load(r'.\pth\cnet.npz')
-        self.conv1.w = net_parameter['conv1_w']
-        self.conv2.w = net_parameter['conv2_w']
-        self.fc1.w = net_parameter['fc1_w']
-        self.fc1.b = net_parameter['fc1_b']
-        self.fc2.w = net_parameter['fc2_w']
-        self.fc2.b = net_parameter['fc2_b']
-        self.fc3.w = net_parameter['fc3_w']
-        self.fc3.b = net_parameter['fc3_b']
-        self.loss = list(net_parameter['loss'])
-
-    def save(self):
-        np.savez(
-            r'.\pth\cnet.npz',
-            conv1_w=self.conv1.w,
-            conv2_w=self.conv2.w,
-            fc1_w=self.fc1.w,
-            fc2_w=self.fc2.w,
-            fc3_w=self.fc3.w,
-            fc1_b=self.fc1.b,
-            fc2_b=self.fc2.b,
-            fc3_b=self.fc3.b,
-            loss=self.loss
-        )
-
-
 class Net(nn.LearnLayer):
     def __init__(self):
         self.state = 'train'
@@ -94,28 +21,20 @@ class Net(nn.LearnLayer):
         self.fc2 = nn.Linear(200, 100)
         self.fc3 = nn.Linear(100, 10, 'x')
         self.flatten = nn.Flatten()
-        self.sigmod = nn.Sigmod()
         self.relu = nn.Relu()
-        self.bn = nn.BatchNorm1d(0.9)
-        self.dropout = nn.Dropout(0.8)
+        self.softmax = nn.Softmax()
 
     def forward(self, x: np.ndarray) -> nn.Tensor:
         x = nn.Tensor(x)
         x = self.flatten(x)
         x = self.relu(self.fc1(x))
         x = self.relu(self.fc2(x))
-        x = self.sigmod(self.fc3(x))
+        x = self.fc3(x)
+        x = self.softmax(x)
         return x
 
     def backward(self, e, parameter: dict):
         pass
-
-    def train(self, x: nn.Tensor, t: np.ndarray) -> None:
-        o = self(x)
-        e = t - o.tensor
-        self.loss.append((e ** 2).sum())
-        for i in o.cache[::-1]:
-            e = i[0].backward(e, i[1])
 
     def __call__(self, x):
         return self.forward(x)
@@ -135,51 +54,61 @@ class Net(nn.LearnLayer):
         self.fc2.b = net_parameter['fc2_b']
         self.fc3.w = net_parameter['fc3_w']
         self.fc3.b = net_parameter['fc3_b']
+        self.loss = list(net_parameter['loss'])
 
     def save(self):
         np.savez(
-            r'.\pth\cnet.npz',
+            r'.\pth\net.npz',
             fc1_w=self.fc1.w,
             fc2_w=self.fc2.w,
             fc3_w=self.fc3.w,
             fc1_b=self.fc1.b,
             fc2_b=self.fc2.b,
             fc3_b=self.fc3.b,
+            loss=np.array(self.loss)
         )
 
 
-def main():
-    np.random.seed(2)
-    plt.title('net.loss')
-    plt.xlabel('batches')
-    plt.ylabel('loss')
+def train(epoches):
+    ts = np.eye(10)
+    net = Net()
+    # net.load()
+    optimizer = optim.Adam(net.parameters(), 0.001, 0.9, 0.9)
+    loss_fn = optim.CrossEntropyLoss()
     batch_size = 10
     trainset = datasets.MNIST(True, batch_size, True)
     testset = datasets.MNIST(False)
-    ts = np.eye(10)
-    epoch = 10
-
-    net = Net()
-    optimizer = optim.Adam(net.parameters(), 0.001, 0.9, 0.9)
-
-    for e in range(epoch):
+    for epoch in range(epoches):
+        plt.title('net.loss')
+        plt.xlabel('batches')
+        plt.ylabel('loss')
         net.state = 'train'
         t = time.time()
         for label, data in trainset:
-            net.train(data, ts[label])
+            target = ts[label]
+            out = net(data)
+            e = target - out.tensor
+            net.loss.append(loss_fn(out, target))
+            for i in out.cache[::-1]:
+                e = i[0].backward(e, i[1])
             optimizer.step()
-
-        print('epoch: {}    use time: {:.3f}s'.format(e + 1, time.time() - t), end='')
+        print('epoch: {}    use time: {:.3f}s    '.format(epoch + 1, time.time() - t), end='')
         plt.scatter(np.arange(1, len(net.loss) + 1), np.array(net.loss) / batch_size, 3, marker='.')
         plt.show()
-        net.loss.clear()
+        # net.loss.clear()
         net.state = 'test'
-
         c = 0
         for label, data in testset:
             if np.argmax(net(data).tensor) == label:
                 c += 1
-        print(f'    Correct rate: {c / 100}%')
+        print(f'Correct rate: {c / 100}%')
+    net.save()
+
+
+def main():
+    np.random.seed(2)
+    epoch = 10
+    train(epoch)
 
 
 if __name__ == '__main__':

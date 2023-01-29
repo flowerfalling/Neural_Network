@@ -13,7 +13,7 @@ class MNIST:
         print('data loading...', end='')
         self.data = np.loadtxt('mnist_train.csv' if train else 'mnist_test.csv', delimiter=',')
         self.shuffle = shuffle
-        self.amount = (30000 if train else 10000) // self.batch_size
+        self.amount = (60000 if train else 10000) // self.batch_size
         self.data = self.data[:self.amount * self.batch_size].reshape(
             (self.amount, self.batch_size, 785))
         print('done')
